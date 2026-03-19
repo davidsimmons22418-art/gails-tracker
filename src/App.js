@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { db, ref as fbRef, onValue, push, remove as fbRemove } from "./firebase";
 
 /*
   GAIL's Brand Design Language — v3 Full Red
@@ -180,9 +181,8 @@ const GlobalStyles = () => (
 );
 
 export default function App() {
-  const [products, setProducts] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("gails_v7")) || []; } catch { return []; }
-  });
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
   const [addMode, setAddMode] = useState(null);
@@ -199,18 +199,39 @@ export default function App() {
   const [weekOffset, setWeekOffset] = useState(0);
   const fileRef = useRef(null);
 
+  // Firebase realtime listener — syncs across all devices
   useEffect(() => {
-    try { localStorage.setItem("gails_v7", JSON.stringify(products)); } catch {}
-  }, [products]);
+    const productsRef = fbRef(db, "products");
+    const unsub = onValue(productsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([firebaseId, val]) => ({
+          ...val,
+          firebaseId,
+        }));
+        setProducts(list);
+      } else {
+        setProducts([]);
+      }
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
 
   const add = (name, cat, date, price) => {
     if (!name || !date) return;
-    setProducts(p => [...p, {
+    const productsRef = fbRef(db, "products");
+    push(productsRef, {
       id: Date.now().toString(), name, category: cat,
       price: price || null, expiryDate: date, addedDate: fmtDate(new Date()),
-    }]);
+    });
   };
-  const remove = (id) => setProducts(p => p.filter(x => x.id !== id));
+  const removeProduct = (p) => {
+    if (p.firebaseId) {
+      const itemRef = fbRef(db, `products/${p.firebaseId}`);
+      fbRemove(itemRef);
+    }
+  };
   const sugDate = (prod) => {
     const d = new Date(); d.setDate(d.getDate() + (prod.shelfDays || 30)); return fmtDate(d);
   };
@@ -342,7 +363,7 @@ export default function App() {
         <StatusTag days={d} />
         <button
           className="gails-del-btn"
-          onClick={() => remove(p.id)}
+          onClick={() => removeProduct(p)}
           style={{
             background: "transparent", border: `1px solid #E0D8CD`, color: warmGray,
             borderRadius: 10, width: 32, height: 32, fontSize: 14, cursor: "pointer",
@@ -403,6 +424,27 @@ export default function App() {
   );
 
   // ── Render ────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="gails-app" style={{
+        maxWidth: 430, margin: "0 auto", minHeight: "100vh",
+        background: cream, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        borderRadius: 24, fontFamily: sans,
+      }}>
+        <GlobalStyles />
+        <div style={{
+          width: 52, height: 52, borderRadius: 14, background: green,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 2px 12px rgba(192,57,43,0.25)", marginBottom: 16,
+        }}>
+          <span style={{ color: cream, fontSize: 28, fontFamily: serif, fontWeight: 700 }}>G</span>
+        </div>
+        <div style={{ fontSize: 14, color: warmGray, animation: "pulse 1.5s ease infinite" }}>Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="gails-app" style={{
